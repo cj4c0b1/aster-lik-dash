@@ -293,7 +293,7 @@ def create_fear_greed_gauge(value, classification):
     fig.update_layout(
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        font={'color': "darkblue", 'family': "Arial"},
+        font={'color': "steelblue", 'family': "Arial"},
         margin=dict(l=10, r=10, t=50, b=10),
         height=200
     )
@@ -398,7 +398,6 @@ def main():
         gauge_placeholder.empty()
         # Update Fear and Greed Index in sidebar
         with gauge_placeholder.container():
-            st.subheader("Fear & Greed Index")
             fng_data = get_fear_greed_index()
             if fng_data:
                 gauge_fig = create_fear_greed_gauge(fng_data['value'], fng_data['classification'])
