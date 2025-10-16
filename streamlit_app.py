@@ -11,6 +11,8 @@ import sqlite3
 import os
 import altair as alt
 import threading
+import plotly.graph_objects as go
+import requests
 
 # Constants
 MAX_DATA_POINTS = 1000  # Maximum number of liquidations to keep in memory
@@ -217,6 +219,87 @@ def calculate_stats(df):
         'last_updated': now.strftime('%Y-%m-%d %H:%M:%S')
     }
 
+@st.cache_data(ttl=300)  # Cache for 5 minutes (300 seconds)
+def get_fear_greed_index():
+    """Fetch the latest Fear and Greed Index data from the API"""
+    try:
+        url = "https://api.alternative.me/fng/?limit=1"
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        
+        if data.get('metadata', {}).get('error'):
+            st.error(f"API Error: {data['metadata']['error']}")
+            return None
+        
+        # Get the most recent data point
+        latest_data = data.get('data', [{}])[0]
+        if not latest_data:
+            st.warning("No Fear and Greed Index data available")
+            return None
+            
+        return {
+            'value': int(latest_data.get('value', 0)),
+            'classification': latest_data.get('value_classification', 'Unknown'),
+            'timestamp': latest_data.get('timestamp', '')
+        }
+    except requests.exceptions.RequestException as e:
+        st.error(f"Failed to fetch Fear and Greed Index: {e}")
+        return None
+    except (ValueError, KeyError) as e:
+        st.error(f"Error parsing Fear and Greed Index data: {e}")
+        return None
+
+def create_fear_greed_gauge(value, classification):
+    """Create a Plotly gauge chart for the Fear and Greed Index"""
+    # Define color ranges for Fear/Greed levels
+    colors = {
+        'Extreme Fear': 'red',
+        'Fear': 'orange',
+        'Neutral': 'yellow',
+        'Greed': 'lightgreen',
+        'Extreme Greed': 'green'
+    }
+    
+    color = colors.get(classification, 'gray')
+    
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number+delta",
+        value=value,
+        domain={'x': [0, 1], 'y': [0, 1]},
+        title={'text': f"Fear & Greed: {classification}"},
+        delta={'reference': 50},  # Neutral at 50
+        gauge={
+            'axis': {'range': [0, 100], 'tickwidth': 1, 'tickcolor': "darkblue"},
+            'bar': {'color': color},
+            'bgcolor': "white",
+            'borderwidth': 2,
+            'bordercolor': "gray",
+            'steps': [
+                {'range': [0, 25], 'color': 'red'},
+                {'range': [25, 45], 'color': 'orange'},
+                {'range': [45, 55], 'color': 'yellow'},
+                {'range': [55, 75], 'color': 'lightgreen'},
+                {'range': [75, 100], 'color': 'green'}
+            ],
+            'threshold': {
+                'line': {'color': "black", 'width': 4},
+                'thickness': 0.75,
+                'value': 50
+            }
+        }
+    ))
+    
+    fig.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font={'color': "darkblue", 'family': "Arial"},
+        margin=dict(l=10, r=10, t=50, b=10),
+        height=200
+    )
+    
+    return fig
+
 async def aster_websocket():
     """Connect to Aster Dex websocket and process liquidations"""
     subscribe_msg = {
@@ -271,23 +354,11 @@ def main():
             <p style="margin-bottom: 10px;">💸 Start trading on Aster dex with my referral link:</p>
             <p style="margin-bottom: 10px; font-size: 14px; color: #888;">
                 <strong>You receive 5% back</strong> from all fees
-            </p>
-            <a href="https://www.asterdex.com/en/referral/183633" target="_blank" style="color: #4CAF50; text-decoration: none;">
-                https://www.asterdex.com/en/referral/183633
-            </a>
         </div>
         """, unsafe_allow_html=True)
-        st.markdown("---")
-        st.markdown("""
-        <div style="text-align: center; margin-top: 10px;">
-            <a href="https://github.com/cj4c0b1/aster-lik-dash" target="_blank" style="text-decoration: none; color: #ffffff; font-weight: bold;">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" style="vertical-align: middle; margin-right: 8px;">
-                    <path fill="currentColor" d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
-                </svg>
-                View on GitHub
-            </a>
-        </div>
-        """, unsafe_allow_html=True)
+
+        # Sidebar placeholder for Fear and Greed Index
+        gauge_placeholder = st.empty()
 
     st.title("📊 Real-time Liquidation Dashboard")
     st.markdown("---")
@@ -322,6 +393,18 @@ def main():
                 st.metric("24h Volume", f"${stats['total_volume']/1e6:.1f}M")
             with col4:
                 st.metric("Top Symbol", stats['top_symbol'])
+        
+        # clean before update
+        gauge_placeholder.empty()
+        # Update Fear and Greed Index in sidebar
+        with gauge_placeholder.container():
+            st.subheader("Fear & Greed Index")
+            fng_data = get_fear_greed_index()
+            if fng_data:
+                gauge_fig = create_fear_greed_gauge(fng_data['value'], fng_data['classification'])
+                st.plotly_chart(gauge_fig, use_container_width=True, key=f"fear_greed_gauge_{cleanup_counter}")
+            else:
+                st.metric("Fear & Greed", "N/A")
         
         # Display chart if we have data
         if not df.empty:
