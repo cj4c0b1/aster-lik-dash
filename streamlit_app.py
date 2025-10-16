@@ -13,6 +13,7 @@ import altair as alt
 import threading
 import plotly.graph_objects as go
 import requests
+from streamlit import fragment
 
 # Constants
 MAX_DATA_POINTS = 1000  # Maximum number of liquidations to keep in memory
@@ -219,7 +220,18 @@ def calculate_stats(df):
         'last_updated': now.strftime('%Y-%m-%d %H:%M:%S')
     }
 
-@st.cache_data(ttl=300)  # Cache for 5 minutes (300 seconds)
+# Create a fragment for the gauge
+@st.fragment(run_every=300)  # Auto-refresh every 60 seconds
+def display_fear_greed_gauge():
+    fng_data = get_fear_greed_index()
+    if fng_data:
+        gauge_fig = create_fear_greed_gauge(fng_data['value'], fng_data['classification'])
+        st.plotly_chart(gauge_fig, use_container_width=True)
+    else:
+        st.warning("Fear & Greed data unavailable")
+
+
+@st.cache_data(ttl=300)  # Cache for 1 minute instead of 5
 def get_fear_greed_index():
     """Fetch the latest Fear and Greed Index data from the API"""
     try:
@@ -251,51 +263,88 @@ def get_fear_greed_index():
         return None
 
 def create_fear_greed_gauge(value, classification):
-    """Create a Plotly gauge chart for the Fear and Greed Index"""
-    # Define color ranges for Fear/Greed levels
-    colors = {
-        'Extreme Fear': 'red',
-        'Fear': 'orange',
-        'Neutral': 'yellow',
-        'Greed': 'lightgreen',
-        'Extreme Greed': 'green'
-    }
+    """Create a CoinMarketCap-style gauge chart for the Fear and Greed Index"""
     
-    color = colors.get(classification, 'gray')
+    # Define color mapping similar to CMC
+    if value <= 24:
+        bar_color = "#ea3943"  # Extreme Fear - Red
+        classification_text = "Extreme Fear"
+    elif value <= 44:
+        bar_color = "#f6931e"  # Fear - Orange
+        classification_text = "Fear"
+    elif value <= 55:
+        bar_color = "#f3d42f"  # Neutral - Yellow
+        classification_text = "Neutral"
+    elif value <= 75:
+        bar_color = "#93d900"  # Greed - Light Green
+        classification_text = "Greed"
+    else:
+        bar_color = "#16c784"  # Extreme Greed - Green
+        classification_text = "Extreme Greed"
     
     fig = go.Figure(go.Indicator(
-        mode="gauge+number+delta",
+        mode="gauge+number",
         value=value,
         domain={'x': [0, 1], 'y': [0, 1]},
-        title={'text': f"Fear & Greed: {classification}"},
-        delta={'reference': 50},  # Neutral at 50
+        number={
+            'font': {'size': 48, 'color': bar_color, 'family': 'Arial Black'},
+            'suffix': ""
+        },
+        title={
+            'text': f"<b>{classification_text}</b>",
+            'font': {'size': 20, 'color': '#ffffff', 'family': 'Arial'}
+        },
         gauge={
-            'axis': {'range': [0, 100], 'tickwidth': 1, 'tickcolor': "darkblue"},
-            'bar': {'color': color},
-            'bgcolor': "white",
-            'borderwidth': 2,
-            'bordercolor': "gray",
+            'axis': {
+                'range': [0, 100],
+                'tickwidth': 2,
+                'tickcolor': "#444444",
+                'tickmode': 'linear',
+                'tick0': 0,
+                'dtick': 25,
+                'tickfont': {'size': 14, 'color': '#cccccc'}
+            },
+            'bar': {
+                'color': bar_color,
+                'thickness': 0.75,
+                'line': {'color': '#ffffff', 'width': 2}
+            },
+            'bgcolor': "#1a1a1a",
+            'borderwidth': 3,
+            'bordercolor': "#333333",
             'steps': [
-                {'range': [0, 25], 'color': 'red'},
-                {'range': [25, 45], 'color': 'orange'},
-                {'range': [45, 55], 'color': 'yellow'},
-                {'range': [55, 75], 'color': 'lightgreen'},
-                {'range': [75, 100], 'color': 'green'}
+                {'range': [0, 25], 'color': 'rgba(234, 57, 67, 0.5)'},      # Extreme Fear
+                {'range': [25, 45], 'color': 'rgba(246, 147, 30, 0.5)'},    # Fear
+                {'range': [45, 55], 'color': 'rgba(243, 212, 47, 0.5)'},    # Neutral
+                {'range': [55, 75], 'color': 'rgba(147, 217, 0, 0.5)'},     # Greed
+                {'range': [75, 100], 'color': 'rgba(22, 199, 132, 0.5)'}    # Extreme Greed
             ],
             'threshold': {
-                'line': {'color': "black", 'width': 4},
-                'thickness': 0.75,
-                'value': 50
+                'line': {'color': bar_color, 'width': 3},
+                'thickness': 0.85,
+                'value': value
             }
         }
     ))
     
+    # Update layout for dark theme like CMC
     fig.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        font={'color': "steelblue", 'family': "Arial"},
-        margin=dict(l=10, r=10, t=50, b=10),
-        height=200
+        paper_bgcolor="#0d0d0d",
+        plot_bgcolor="#0d0d0d",
+        font={'color': "#ffffff", 'family': "Arial"},
+        margin=dict(l=20, r=20, t=80, b=20),
+        height=300
+    )
+    
+    # Add annotation for labels
+    fig.add_annotation(
+        text="<b>Fear & Greed Index</b>",
+        xref="paper",
+        yref="paper",
+        x=0.5,
+        y=1.15,
+        showarrow=False,
+        font=dict(size=16, color="#888888", family="Arial")
     )
     
     return fig
@@ -358,7 +407,9 @@ def main():
         """, unsafe_allow_html=True)
 
         # Sidebar placeholder for Fear and Greed Index
-        gauge_placeholder = st.empty()
+        #gauge_placeholder = st.empty()
+        # Display gauge using fragment
+        display_fear_greed_gauge()
 
     st.title("📊 Real-time Liquidation Dashboard")
     st.markdown("---")
@@ -394,16 +445,16 @@ def main():
             with col4:
                 st.metric("Top Symbol", stats['top_symbol'])
         
-        # clean before update
-        gauge_placeholder.empty()
+        # NO GAUGE UPDATE HERE ANYMORE - it's handled by the fragment
         # Update Fear and Greed Index in sidebar
-        with gauge_placeholder.container():
-            fng_data = get_fear_greed_index()
-            if fng_data:
-                gauge_fig = create_fear_greed_gauge(fng_data['value'], fng_data['classification'])
-                st.plotly_chart(gauge_fig, use_container_width=True, key=f"fear_greed_gauge_{cleanup_counter}")
-            else:
-                st.metric("Fear & Greed", "N/A")
+        #gauge_placeholder.empty()
+        #with gauge_placeholder.container():
+        #    fng_data = get_fear_greed_index()
+        #    if fng_data:
+        #        gauge_fig = create_fear_greed_gauge(fng_data['value'], fng_data['classification'])
+        #        st.plotly_chart(gauge_fig, use_container_width=True, key=f"fear_greed_gauge_{cleanup_counter}")
+        #    else:
+        #        st.warning("Fear & Greed data unavailable")
         
         # Display chart if we have data
         if not df.empty:

@@ -78,7 +78,5 @@ Thumbs.db
 # Streamlit specific
 .streamlit/secrets.toml
 
-# Data files (if applicable)
-*.csv.bak
-*.xlsx.bak
-data/
+# Database files
+liquidations.db
